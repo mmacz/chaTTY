@@ -5,7 +5,9 @@ edition = "2021"
 license-file = "LICENSE"
 
 [dependencies]
-clap = { version = "4.5.20", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+log = { version = "0.4" }
+uuid = { version = "1.11.0", features = [ "v4", "fast-rng", "macro-diagnostics" ]}
 
 [[bin]]
 name = "client"
