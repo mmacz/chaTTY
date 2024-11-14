@@ -15,6 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex};
 
+use std::env;
+
 struct SimpleLogger;
 
 impl log::Log for SimpleLogger {
@@ -95,7 +97,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|()| log::set_max_level(LevelFilter::Info))
         .expect("Failed to initialize logger!");
 
-    let port = 8080;
+    let port: u16 = match env::var("CHATTY_PORT").unwrap_or("8080".to_string()).parse() {
+        Ok(p) => p,
+        _ => {
+            log::info!("Invalid port selected: {}, defaulting to: 8080...", env::var("CHATTY_PORT")?);
+            8080
+        },
+    };
     let (broadcast_tx, _) = broadcast::channel::<StoredMessage>(100);
 
     let state = AppState {
