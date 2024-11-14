@@ -1,13 +1,19 @@
 # Simple chat client and server written in Rust
 
 ## Goals
-- [ ] Create a basic chat server
-        - [ ] Handle TCP Connections
-        - [ ] Handle clients history
-        - [ ] Broadcast global messages
-        - [ ] Authenticate clients
-        - [ ] Can prevent connection from client
+
+### Server
+- [X] Create a basic chat server
+- [X] Handle TCP Connections
+- [X] Authenticate clients
+- [ ] Broadcast global messages
+- [ ] Handle clients history
+
+### Client
 - [ ] Create a basic chat client
-        - [ ] Handle TCP Connection
-        - [ ] Broadcast global messages
-        - [ ] Authenticate to server
+- [ ] TUI
+- [ ] Handle TCP Connection
+- [ ] Authenticate to server
+- [ ] Fetch messages
+- [ ] Write message to chat
+- [ ] Show chat history
