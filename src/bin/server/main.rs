@@ -1,6 +1,10 @@
 use axum::serve;
 use axum::{
-    extract::State,
+    extract::{
+        State,
+        WebSocketUpgrade,
+        ws::{WebSocket, Message},
+    },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -14,6 +18,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex};
+use futures::{
+    sink::SinkExt,
+    stream::StreamExt,
+};
 
 use std::env;
 
@@ -67,6 +75,7 @@ struct AppState {
     message_history: Arc<Mutex<VecDeque<StoredMessage>>>,
 }
 
+#[derive(Debug)]
 enum AppError {
     AuthError(String),
     ChatError(String),
@@ -117,6 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/chat", post(handle_chat))
         .route("/messages", get(get_messages))
         .route("/status", get(handle_status))
+        .route("/ws", get(ws_handler))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -237,4 +247,119 @@ async fn handle_status() -> Json<ApiResponse> {
         token: None,
         messages: None,
     })
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade, 
+    headers: HeaderMap,
+    State(state): State<AppState>
+) -> Response {
+    // Extract token and clone it to move ownership
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(|t| t.to_string());
+
+    ws.on_upgrade(move |socket| async move {
+        handle_websocket(socket, state, token).await
+    })
+}
+
+async fn handle_websocket(
+    socket: WebSocket, 
+    state: AppState,
+    token: Option<String>
+) {
+    let username = match authenticate_websocket_user(&state, token).await {
+        Ok(user) => user,
+        Err(_) => {
+            log::warn!("WebSocket authentication failed");
+            return;
+        }
+    };
+
+    let (mut sender, mut receiver) = socket.split();
+
+    let state_clone = state.clone();
+    let username_clone = username.clone();
+
+    let mut broadcast_rx = state.broadcast_tx.subscribe();
+    let send_task = tokio::spawn(async move {
+        while let Ok(msg) = broadcast_rx.recv().await {
+            // Convert message to JSON
+            if let Ok(json_msg) = serde_json::to_string(&msg) {
+                if sender.send(Message::Text(json_msg)).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    let receive_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(text) => {
+                    // Process incoming chat message
+                    match process_websocket_message(&state_clone, username_clone.clone(), text).await {
+                        Ok(_) => log::info!("WebSocket message processed"),
+                        Err(e) => log::error!("WebSocket message error: {:?}", e),
+                    }
+                },
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = send_task => {},
+        _ = receive_task => {},
+    }
+}
+
+async fn authenticate_websocket_user(
+    state: &AppState, 
+    token: Option<String>
+) -> Result<String, AppError> {
+    let token = token.ok_or_else(|| AppError::AuthError("No token provided".to_string()))?;
+
+    let users = state.authenticated_users.lock().await;
+    
+    users.iter()
+        .find(|(_, stored_token)| stored_token.to_string() == token)
+        .map(|(username, _)| username.clone())
+        .ok_or_else(|| AppError::AuthError("Invalid token".to_string()))
+}
+
+async fn process_websocket_message(
+    state: &AppState, 
+    username: String, 
+    message_text: String
+) -> Result<(), AppError> {
+    let chat_message = ChatMessage { message: message_text };
+    
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let message = StoredMessage {
+        id: timestamp,
+        timestamp,
+        user: username,
+        content: chat_message.message,
+    };
+
+    {
+        let mut history = state.message_history.lock().await;
+        if history.len() >= 100 {
+            history.pop_front();
+        }
+        history.push_back(message.clone());
+    }
+
+    state.broadcast_tx.send(message.clone())
+        .map_err(|_| AppError::ChatError("Failed to broadcast message".to_string()))?;
+
+    Ok(())
 }
