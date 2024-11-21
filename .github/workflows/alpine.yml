@@ -25,10 +25,8 @@ jobs:
               openssl openssl-dev \
               alpine-sdk openssl-dev \
               bash && \
-            # Install Rust
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y && \
-            source $HOME/.cargo/env && \
-            # Build the Rust project
+              cargo && \
+              rust 
             cargo build --release
           "
 
