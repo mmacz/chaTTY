@@ -9,7 +9,6 @@ use tokio_tungstenite::{
 };
 use reqwest;
 
-const SERVER_ADDRESS: &str = "127.0.0.1:8080";
 
 #[derive(Debug, Serialize)]
 struct AuthRequest {
@@ -40,7 +39,13 @@ struct OutgoingMessage {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("Welcome to Rust Chat Client!");
+    println!("Welcome to chaTTY!");
+
+    // Get server address
+    print!("Provide server address and port: ");
+    let mut server_address = String::new();
+    io::stdin().read_line(&mut server_address)?;
+    server_address = server_address.trim().to_string();
     
     // Get username and password
     print!("Enter username: ");
@@ -56,11 +61,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     password = password.trim().to_string();
 
     // Authenticate
-    let token = authenticate(&username, &password).await?;
+    let token = authenticate(&username, &password, &server_address).await?;
     println!("Authentication successful!");
 
     // Create WebSocket request with authentication
-    let ws_url = format!("ws://{}/ws", SERVER_ADDRESS);
+    let ws_url = format!("ws://{}/ws", server_address);
     let mut request = ws_url.into_client_request()?;
     
     // Set the authorization header
@@ -133,7 +138,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn authenticate(username: &str, password: &str) -> Result<String, Box<dyn Error>> {
+async fn authenticate(username: &str, password: &str, server_address: &str) -> Result<String, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let auth_request = AuthRequest {
         username: username.to_string(),
@@ -141,7 +146,7 @@ async fn authenticate(username: &str, password: &str) -> Result<String, Box<dyn 
     };
 
     let response = client
-        .post(&format!("http://{}/auth", SERVER_ADDRESS))
+        .post(&format!("http://{}/auth", server_address))
         .json(&auth_request)
         .send()
         .await?;
