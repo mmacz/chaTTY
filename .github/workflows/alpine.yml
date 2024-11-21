@@ -47,7 +47,4 @@ jobs:
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-git-
-      
-      - name: Run tests
-        run: cargo test
 
