@@ -1,4 +1,4 @@
-nameu: chaTTY Alpine
+name: chaTTY Alpine
 
 on:
   push:
