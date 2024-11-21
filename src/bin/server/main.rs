@@ -42,11 +42,24 @@ impl log::Log for SimpleLogger {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct StoredMessage {
-    id: u64,
-    timestamp: u64,
-    user: String,
-    content: String,
+#[serde(tag = "type")]
+enum ChatEvent {
+    Message {
+        id: u64,
+        timestamp: u64,
+        user: String,
+        content: String,
+    },
+    UserJoined {
+        id: u64,
+        timestamp: u64,
+        user: String,
+    },
+    UserLeft {
+        id: u64,
+        timestamp: u64,
+        user: String,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,14 +78,14 @@ struct ApiResponse {
     status: String,
     message: String,
     token: Option<String>,
-    messages: Option<Vec<StoredMessage>>,
+    messages: Option<Vec<ChatEvent>>,
 }
 
 #[derive(Clone)]
 struct AppState {
-    broadcast_tx: broadcast::Sender<StoredMessage>,
+    broadcast_tx: broadcast::Sender<ChatEvent>,
     authenticated_users: Arc<Mutex<HashMap<String, String>>>,
-    message_history: Arc<Mutex<VecDeque<StoredMessage>>>,
+    message_history: Arc<Mutex<VecDeque<ChatEvent>>>,
 }
 
 #[derive(Debug)]
@@ -113,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             8080
         },
     };
-    let (broadcast_tx, _) = broadcast::channel::<StoredMessage>(100);
+    let (broadcast_tx, _) = broadcast::channel::<ChatEvent>(100);
 
     let state = AppState {
         broadcast_tx: broadcast_tx.clone(),
@@ -185,7 +198,7 @@ async fn handle_chat(
         .unwrap()
         .as_secs();
 
-    let message = StoredMessage {
+    let message = ChatEvent::Message{
         id: timestamp,
         timestamp,
         user: username,
@@ -230,7 +243,7 @@ async fn get_messages(
     }
 
     let history = state.message_history.lock().await;
-    let messages: Vec<StoredMessage> = history.iter().cloned().collect();
+    let messages: Vec<ChatEvent> = history.iter().cloned().collect();
 
     Ok(Json(ApiResponse {
         status: "success".to_string(),
@@ -278,8 +291,33 @@ async fn handle_websocket(
     log::info!("WebSocket connection established for user: {}", username);
 
     let (mut sender, mut receiver) = socket.split();
-
+    
     let mut broadcast_rx = state.broadcast_tx.subscribe();
+    
+    let join_event = ChatEvent::UserJoined {
+        id: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        timestamp: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        user: username.clone(),
+    };
+
+    {
+        let mut history = state.message_history.lock().await;
+        if history.len() >= 100 {
+            history.pop_front();
+        }
+        history.push_back(join_event.clone());
+    }
+
+    if let Err(e) = state.broadcast_tx.send(join_event) {
+        log::error!("Failed to broadcast join event: {}", e);
+    }
+
     let send_task = tokio::spawn(async move {
         while let Ok(msg) = broadcast_rx.recv().await {
             if let Ok(json_msg) = serde_json::to_string(&msg) {
@@ -303,7 +341,7 @@ async fn handle_websocket(
                             .unwrap()
                             .as_secs();
 
-                        let message = StoredMessage {
+                        let message = ChatEvent::Message {
                             id: timestamp,
                             timestamp,
                             user: username_clone.clone(),
@@ -335,40 +373,16 @@ async fn handle_websocket(
         _ = receive_task => log::info!("Receive task completed for user: {}", username),
     }
 
-    log::info!("WebSocket connection closed for user: {}", username);
-}
-
-async fn authenticate_websocket_user(
-    state: &AppState, 
-    token: Option<String>
-) -> Result<String, AppError> {
-    let token = token.ok_or_else(|| AppError::AuthError("No token provided".to_string()))?;
-
-    let users = state.authenticated_users.lock().await;
-    
-    users.iter()
-        .find(|(_, stored_token)| stored_token.to_string() == token)
-        .map(|(username, _)| username.clone())
-        .ok_or_else(|| AppError::AuthError("Invalid token".to_string()))
-}
-
-async fn process_websocket_message(
-    state: &AppState, 
-    username: String, 
-    message_text: String
-) -> Result<(), AppError> {
-    let chat_message = ChatMessage { message: message_text };
-    
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let message = StoredMessage {
-        id: timestamp,
-        timestamp,
-        user: username,
-        content: chat_message.message,
+    let leave_event = ChatEvent::UserLeft {
+        id: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        timestamp: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        user: username.clone(),
     };
 
     {
@@ -376,11 +390,13 @@ async fn process_websocket_message(
         if history.len() >= 100 {
             history.pop_front();
         }
-        history.push_back(message.clone());
+        history.push_back(leave_event.clone());
     }
 
-    state.broadcast_tx.send(message.clone())
-        .map_err(|_| AppError::ChatError("Failed to broadcast message".to_string()))?;
+    if let Err(e) = state.broadcast_tx.send(leave_event) {
+        log::error!("Failed to broadcast leave event: {}", e);
+    }
 
-    Ok(())
+    log::info!("WebSocket connection closed for user: {}", username);
 }
+
