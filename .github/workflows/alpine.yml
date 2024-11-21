@@ -2,25 +2,20 @@ nameu: chaTTY Alpine
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
   pull_request:
-    branches:
-      - main
+    branches: ["main"]
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # Using GitHub-hosted runners to run the job
+    runs-on: ubuntu-latest
     
     steps:
-      # Step 1: Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v3
         
-      # Step 2: Set up Docker with Alpine and Rust dependencies
       - name: Build with Alpine Linux
         run: |
-          # Pull the Alpine image
           docker run --rm -v $PWD:/usr/src/myapp -w /usr/src/myapp alpine:latest sh -c "
             # Install Rust dependencies (Alpine packages and Rust)
             apk update && apk add --no-cache \
@@ -36,7 +31,6 @@ jobs:
             cargo build --release
           "
 
-      # Step 3: Cache Cargo dependencies
       - name: Cache Cargo registry
         uses: actions/cache@v3
         with:
@@ -53,7 +47,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-git-
       
-      # Step 4: Run tests (optional step)
       - name: Run tests
         run: cargo test
 
