@@ -253,40 +253,35 @@ async fn ws_handler(
     ws: WebSocketUpgrade, 
     headers: HeaderMap,
     State(state): State<AppState>
-) -> Response {
-    // Extract token and clone it to move ownership
-    let token = headers
-        .get("authorization")
+) -> Result<Response, AppError> {
+    let auth_header = headers
+        .get("authorization")  // Changed to use standard authorization header
         .and_then(|value| value.to_str().ok())
-        .map(|t| t.to_string());
+        .ok_or_else(|| AppError::AuthError("Missing authorization header".to_string()))?;
 
-    ws.on_upgrade(move |socket| async move {
-        handle_websocket(socket, state, token).await
-    })
+    let users = state.authenticated_users.clone();
+    let users = users.lock().await;
+    let username = users
+        .iter()
+        .find(|(_, token)| *token == auth_header)
+        .map(|(username, _)| username.clone())
+        .ok_or_else(|| AppError::AuthError("Invalid token".to_string()))?;
+
+    Ok(ws.on_upgrade(move |socket| handle_websocket(socket, state, username)))
 }
 
 async fn handle_websocket(
     socket: WebSocket, 
     state: AppState,
-    token: Option<String>
+    username: String,
 ) {
-    let username = match authenticate_websocket_user(&state, token).await {
-        Ok(user) => user,
-        Err(_) => {
-            log::warn!("WebSocket authentication failed");
-            return;
-        }
-    };
+    log::info!("WebSocket connection established for user: {}", username);
 
     let (mut sender, mut receiver) = socket.split();
-
-    let state_clone = state.clone();
-    let username_clone = username.clone();
 
     let mut broadcast_rx = state.broadcast_tx.subscribe();
     let send_task = tokio::spawn(async move {
         while let Ok(msg) = broadcast_rx.recv().await {
-            // Convert message to JSON
             if let Ok(json_msg) = serde_json::to_string(&msg) {
                 if sender.send(Message::Text(json_msg)).await.is_err() {
                     break;
@@ -295,16 +290,40 @@ async fn handle_websocket(
         }
     });
 
+    let state_clone = state.clone();
+    let username_clone = username.clone();
+
     let receive_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(text) => {
-                    // Process incoming chat message
-                    match process_websocket_message(&state_clone, username_clone.clone(), text).await {
-                        Ok(_) => log::info!("WebSocket message processed"),
-                        Err(e) => log::error!("WebSocket message error: {:?}", e),
+                    if let Ok(chat_message) = serde_json::from_str::<ChatMessage>(&text) {
+                        let timestamp = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+
+                        let message = StoredMessage {
+                            id: timestamp,
+                            timestamp,
+                            user: username_clone.clone(),
+                            content: chat_message.message,
+                        };
+
+                        {
+                            let mut history = state_clone.message_history.lock().await;
+                            if history.len() >= 100 {
+                                history.pop_front();
+                            }
+                            history.push_back(message.clone());
+                        }
+
+                        if let Err(e) = state_clone.broadcast_tx.send(message) {
+                            log::error!("Failed to broadcast message: {}", e);
+                            break;
+                        }
                     }
-                },
+                }
                 Message::Close(_) => break,
                 _ => {}
             }
@@ -312,9 +331,11 @@ async fn handle_websocket(
     });
 
     tokio::select! {
-        _ = send_task => {},
-        _ = receive_task => {},
+        _ = send_task => log::info!("Send task completed for user: {}", username),
+        _ = receive_task => log::info!("Receive task completed for user: {}", username),
     }
+
+    log::info!("WebSocket connection closed for user: {}", username);
 }
 
 async fn authenticate_websocket_user(
