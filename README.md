@@ -1,5 +1,8 @@
 # Simple chat client and server written in Rust
 
+Build for platforms:
+![Build status](https://github.com/mmacz/chaTTY/actions/workflows/alpine.yml/badge.svg)
+
 ## Goals
 
 ### Server
