@@ -24,9 +24,9 @@ jobs:
               git \
               openssl openssl-dev \
               alpine-sdk openssl-dev \
-              bash && \
-              cargo && \
-              rust 
+              bash \
+              cargo \
+              rust &&
             cargo build --release
           "
 
