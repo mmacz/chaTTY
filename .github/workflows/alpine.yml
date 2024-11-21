@@ -1,4 +1,4 @@
-name: Build chaTTY with Alpine Linux
+nameu: chaTTY Alpine
 
 on:
   push:
@@ -10,30 +10,33 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        os: [alpine]
-
+    runs-on: ubuntu-latest  # Using GitHub-hosted runners to run the job
+    
     steps:
+      # Step 1: Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Set up Rust with Alpine
-        uses: docker://rust:latest-alpine
-        with:
-          entrypoint: /bin/sh
-
-      - name: Install build dependencies (Alpine)
+        
+      # Step 2: Set up Docker with Alpine and Rust dependencies
+      - name: Build with Alpine Linux
         run: |
-          apk update
-          apk add --no-cache \
-            build-base \
-            curl \
-            git \
-            libssl-dev
+          # Pull the Alpine image
+          docker run --rm -v $PWD:/usr/src/myapp -w /usr/src/myapp alpine:latest sh -c "
+            # Install Rust dependencies (Alpine packages and Rust)
+            apk update && apk add --no-cache \
+              build-base \
+              curl \
+              git \
+              libssl-dev \
+              bash && \
+            # Install Rust
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y && \
+            source $HOME/.cargo/env && \
+            # Build the Rust project
+            cargo build --release
+          "
 
+      # Step 3: Cache Cargo dependencies
       - name: Cache Cargo registry
         uses: actions/cache@v3
         with:
@@ -41,7 +44,7 @@ jobs:
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
-
+        
       - name: Cache Cargo build
         uses: actions/cache@v3
         with:
@@ -49,7 +52,8 @@ jobs:
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-git-
-
-      - name: Build chaTTY
-        run: cargo build --release
+      
+      # Step 4: Run tests (optional step)
+      - name: Run tests
+        run: cargo test
 
