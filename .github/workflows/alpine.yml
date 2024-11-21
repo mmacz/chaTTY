@@ -1,4 +1,4 @@
-name: chaTTY Alpine
+name: chaTTY Alpine Linux 3.18
 
 on:
   push:
@@ -14,15 +14,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         
-      - name: Build with Alpine Linux
+      - name: Build with Alpine Linux 3.18
         run: |
-          docker run --rm -v $PWD:/usr/src/myapp -w /usr/src/myapp alpine:latest sh -c "
+          docker run --rm -v $PWD:/usr/src/myapp -w /usr/src/myapp alpine:3.18 sh -c "
             # Install Rust dependencies (Alpine packages and Rust)
             apk update && apk add --no-cache \
               build-base \
               curl \
               git \
-              libssl-dev \
+              openssl openssl-dev \
+              alpine-sdk openssl-dev \
               bash && \
             # Install Rust
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y && \
