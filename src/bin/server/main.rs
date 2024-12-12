@@ -24,7 +24,7 @@ use futures::{
 };
 use chrono::Utc;
 use uuid::Uuid;
-use base64::encode;
+use base64::{engine::general_purpose, Engine};
 
 use std::env;
 
@@ -171,7 +171,7 @@ async fn handle_auth(
     let pre_token = format!("{}:{}:{}", username, uuid, timestamp);
 
     // Potential HMAC add?
-    let token = encode(pre_token);
+    let token = general_purpose::STANDARD.encode(pre_token);
 
     users.insert(auth.username.clone(), token.clone());
 

@@ -12,7 +12,6 @@ use reqwest;
 #[derive(Debug, Serialize)]
 struct AuthRequest {
     username: String,
-    password: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,13 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_line(&mut username)?;
     username = username.trim().to_string();
 
-    print!("Enter password: ");
-    io::stdout().flush()?;
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
-    password = password.trim().to_string();
-
-    let token = authenticate(&username, &password, &server_address).await?;
+    let token = authenticate(&username, &server_address).await?;
     println!("Authentication successful!");
 
     let ws_url = format!("ws://{}/ws", server_address);
@@ -166,11 +159,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn authenticate(username: &str, password: &str, server_address: &str) -> Result<String, Box<dyn Error>> {
+async fn authenticate(username: &str, server_address: &str) -> Result<String, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let auth_request = AuthRequest {
         username: username.to_string(),
-        password: password.to_string(),
     };
 
     let response = client
