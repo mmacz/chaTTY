@@ -22,6 +22,9 @@ use futures::{
     sink::SinkExt,
     stream::StreamExt,
 };
+use chrono::Utc;
+use uuid::Uuid;
+use base64::encode;
 
 use std::env;
 
@@ -65,7 +68,6 @@ enum ChatEvent {
 #[derive(Debug, Deserialize)]
 struct AuthRequest {
     username: String,
-    password: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,15 +157,22 @@ async fn handle_auth(
     State(state): State<AppState>,
     Json(auth): Json<AuthRequest>,
 ) -> Result<Json<ApiResponse>, AppError> {
-    if auth.username.is_empty() || auth.password.is_empty() {
+    if auth.username.is_empty() {
         return Err(AppError::AuthError(
-            "Invalid username or password".to_string(),
+            "No username provided".to_string(),
         ));
     }
 
     let mut users = state.authenticated_users.lock().await;
 
-    let token = format!("token_{}", auth.username);
+    let uuid = Uuid::new_v4();
+    let timestamp = Utc::now().to_rfc3339();
+    let username = auth.username.clone();
+    let pre_token = format!("{}:{}:{}", username, uuid, timestamp);
+
+    // Potential HMAC add?
+    let token = encode(pre_token);
+
     users.insert(auth.username.clone(), token.clone());
 
     Ok(Json(ApiResponse {
